@@ -1,0 +1,16 @@
+<Bindings>
+  <Binding name="EQUIPMATE_TOGGLE" header="EQUIPMATE_TITLE">
+    EquipMate.ToggleUI();
+  </Binding>
+  <Binding name="EQUIPMATE_OUTFIT1">EquipMate.WearBoundOutfit(1);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT2">EquipMate.WearBoundOutfit(2);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT3">EquipMate.WearBoundOutfit(3);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT4">EquipMate.WearBoundOutfit(4);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT5">EquipMate.WearBoundOutfit(5);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT6">EquipMate.WearBoundOutfit(6);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT7">EquipMate.WearBoundOutfit(7);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT8">EquipMate.WearBoundOutfit(8);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT9">EquipMate.WearBoundOutfit(9);</Binding>
+  <Binding name="EQUIPMATE_OUTFIT10">EquipMate.WearBoundOutfit(10);</Binding>
+</Bindings>
+

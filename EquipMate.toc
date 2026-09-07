@@ -1,0 +1,28 @@
+## Interface: 11200
+## Title: EquipMate
+## Notes: A compact outfit manager for Vanilla WoW
+## Author: akzkak
+## Version: 0.3.0
+## SavedVariablesPerCharacter: EquipMateDB
+
+core\addon.lua
+core\constants.lua
+localization\enUS.lua
+localization\deDE.lua
+localization\frFR.lua
+localization\koKR.lua
+localization\ruRU.lua
+localization\zhCN.lua
+localization\zhTW.lua
+core\util.lua
+core\capabilities.lua
+equipment\items.lua
+equipment\inventory.lua
+equipment\outfits.lua
+equipment\generator.lua
+equipment\engine.lua
+automatic\rules.lua
+ui\integration.lua
+ui\panel.lua
+input\bindings.lua
+input\bindings.xml

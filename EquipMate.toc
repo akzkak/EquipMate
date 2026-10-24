@@ -25,4 +25,3 @@ automatic\rules.lua
 ui\integration.lua
 ui\panel.lua
 input\bindings.lua
-input\bindings.xml

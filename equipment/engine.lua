@@ -4,12 +4,83 @@ EM.Engine = Engine
 EM.modules.Engine = Engine
 
 function Engine:Initialize()
+  self:RestoreManualState()
   EM.On("INVENTORY_UPDATED", self, self.OnInventoryUpdated)
   EM.On("OUTFITS_CHANGED", self, self.OnOutfitsChanged)
   self.frame = CreateFrame("Frame", "EquipMateEngineFrame")
   self.frame:SetScript("OnEvent", function() Engine:OnGameEvent(event) end)
   EM.RegisterEvent(self.frame, "PLAYER_REGEN_ENABLED")
   EM.RegisterEvent(self.frame, "CURSOR_UPDATE")
+  EM.RegisterEvent(self.frame, "PLAYER_LOGOUT")
+end
+
+function Engine:SaveManualState()
+  if not self.manualBaseline or table.getn(self.manualOverlays) == 0 then
+    EquipMateDB.manualState = nil
+    EM.Debug("manual toggle memory: cleared (no active manual outfits)")
+    return
+  end
+  EquipMateDB.manualState = {
+    baseline = EM.Util.Copy(self.manualBaseline),
+    overlays = EM.Util.Copy(self.manualOverlays)
+  }
+  EM.Debug("manual toggle memory: saved " .. table.getn(self.manualOverlays) ..
+    " active outfits; return main hand " .. EM.Items:Signature(self.manualBaseline.slots.MainHandSlot))
+end
+
+function Engine:RestoreManualState()
+  self.manualBaseline = nil
+  self.manualOverlays = {}
+  local state = EquipMateDB.manualState
+  EquipMateDB.manualState = nil
+  if state == nil then
+    EM.Debug("manual toggle memory: no saved state at login")
+    return
+  end
+  if type(state) ~= "table" or type(state.baseline) ~= "table" or
+      type(state.baseline.slots) ~= "table" or type(state.overlays) ~= "table" then
+    EM.Debug("manual toggle memory: rejected invalid saved state")
+    return
+  end
+  -- Require a complete saved snapshot; never infer empty slots from login-time inventory reads.
+  local i, key, desired
+  local baseline = {name="Pre-manual equipment", slots={}, ephemeral=true}
+  for i = 1, table.getn(EM.Slots) do
+    key = EM.Slots[i].key
+    desired = state.baseline.slots[key]
+    if type(desired) ~= "table" or
+        (not desired.empty and type(desired.id) ~= "number") then
+      EM.Debug("manual toggle memory: rejected invalid return slot " .. key)
+      return
+    end
+    baseline.slots[key] = desired.empty and {empty=true} or EM.Items:ForOutfit(desired)
+  end
+  if type(state.baseline.visibility) == "table" then
+    baseline.visibility = {}
+    local part
+    for _, part in ipairs({"helm", "cloak"}) do
+      if type(state.baseline.visibility[part]) == "boolean" then
+        baseline.visibility[part] = state.baseline.visibility[part]
+      end
+    end
+  end
+  local seen, ids = {}, {}
+  for i = 1, table.getn(state.overlays) do
+    local id = state.overlays[i]
+    if type(id) == "number" and EM.Outfits:Get(id) and not seen[id] then
+      table.insert(ids, id)
+      seen[id] = true
+    end
+  end
+  if table.getn(ids) == 0 then
+    EM.Debug("manual toggle memory: no saved outfits still exist")
+    return
+  end
+  self.manualBaseline = baseline
+  self.manualOverlays = ids
+  EM.Debug("manual toggle memory: restored " .. table.getn(ids) ..
+    " active outfits at login; return main hand " .. EM.Items:Signature(baseline.slots.MainHandSlot))
+  self:SaveManualState()
 end
 
 function Engine:OnOutfitsChanged(action, outfitID)
@@ -32,7 +103,8 @@ function Engine:OnOutfitsChanged(action, outfitID)
   end
 end
 
-function Engine:OnGameEvent()
+function Engine:OnGameEvent(name)
+  if name == "PLAYER_LOGOUT" then self:SaveManualState(); return end
   if self.transaction then EM.After(0.05, self, self.Step, "engine-step") end
 end
 
@@ -83,9 +155,53 @@ function Engine:Wear(id, source, reason)
   return self:WearOutfit(outfit, source, reason)
 end
 
+function Engine:ReconcileManualToggle(outfit)
+  -- Automatic overlays and in-progress swaps can legitimately hide this layer.
+  if self.transaction or not self.manualBaseline or
+      (EM.Rules and table.getn(EM.Rules.activeIDs or {}) > 0) then return end
+  local expected = self:CompileManual(self.manualOverlays, "Expected manual equipment")
+  local exposed = {}
+  local found = false
+  local i, key
+  for i = 1, table.getn(self.manualOverlays) do
+    local active = EM.Outfits:Get(self.manualOverlays[i])
+    if self.manualOverlays[i] == outfit.id then
+      found = true
+      for key in pairs(outfit.slots) do exposed[key] = true end
+    elseif found and active then
+      for key in pairs(active.slots) do exposed[key] = nil end
+    end
+  end
+  local changed = false
+  for key in pairs(exposed) do
+    local actual, desired = EM.Inventory.equipped[key], expected.slots[key]
+    if (desired.empty and actual) or
+        (not desired.empty and not EM.Items:Matches(actual, desired)) then changed = true end
+  end
+  if not changed then return end
+  -- A manual equipment change superseded this layer. The next toggle should
+  -- activate it over the current equipment, rather than restore stale gear.
+  local ids = {}
+  for i = 1, table.getn(self.manualOverlays) do
+    if self.manualOverlays[i] ~= outfit.id then table.insert(ids, self.manualOverlays[i]) end
+  end
+  for key in pairs(exposed) do
+    local actual = EM.Inventory.equipped[key]
+    self.manualBaseline.slots[key] = actual and EM.Items:ForOutfit(actual) or {empty=true}
+  end
+  self.manualOverlays = ids
+  if table.getn(ids) == 0 then self.manualBaseline = nil end
+  EM.Debug("manual toggle memory: " .. outfit.name .. " was manually overridden; capturing current equipment")
+  self:SaveManualState()
+end
+
 function Engine:Toggle(id, source)
   local outfit = EM.Outfits:Get(id)
   if not outfit then return nil, "Unknown outfit." end
+  if EM.Util.TableContains(self.manualOverlays, outfit.id) and self.manualBaseline then
+    EM.Inventory:ScanAll("toggle-check")
+    if not source or source == "manual" then self:ReconcileManualToggle(outfit) end
+  end
   if EM.Util.TableContains(self.manualOverlays, outfit.id) and self.manualBaseline then
     if self.transaction then self:Cancel("superseded") end
     EM.Inventory:ScanAll("toggle-start")
@@ -160,6 +276,7 @@ function Engine:Finish(success, details)
   elseif not success and transaction.source=="manual" and table.getn(self.manualOverlays)==0 then
     self.manualBaseline=nil
   end
+  if transaction.source == "manual" then self:SaveManualState() end
   local completedOutfit = transaction.outfit or EM.Outfits:Get(transaction.outfitID)
   if success then self:ApplyVisibility(completedOutfit) end
   EM.Emit("EQUIP_FINISHED", transaction, success, details)
